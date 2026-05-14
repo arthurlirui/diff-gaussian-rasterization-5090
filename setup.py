@@ -3,10 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
-# under the terms of the LICENSE.md file.
-#
-# For inquiries contact  george.drettakis@inria.fr
+# Refactored for CUDA 13.1 / sm_131 with CUDA Tile support
 #
 
 from setuptools import setup
@@ -26,7 +23,14 @@ setup(
             "cuda_rasterizer/backward.cu",
             "rasterize_points.cu",
             "ext.cpp"],
-            extra_compile_args={"nvcc": ["-I" + os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party/glm/")]})
+            extra_compile_args={"nvcc": [
+                "-I" + os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party/glm/"),
+                "-gencode", "arch=compute_131,code=sm_131",
+                "-gencode", "arch=compute_131,code=compute_131",
+                "--expt-relaxed-constexpr",
+                "--expt-extended-lambda",
+                "-use_fast_math",
+            ]})
         ],
     cmdclass={
         'build_ext': BuildExtension

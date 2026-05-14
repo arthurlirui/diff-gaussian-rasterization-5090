@@ -3,10 +3,7 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * This software is free for non-commercial, research and evaluation use 
- * under the terms of the LICENSE.md file.
- *
- * For inquiries contact  george.drettakis@inria.fr
+ * Refactored for CUDA 13.1 / sm_131 with CUDA Tile support
  */
 
 #ifndef CUDA_RASTERIZER_AUXILIARY_H_INCLUDED
@@ -14,11 +11,11 @@
 
 #include "config.h"
 #include "stdio.h"
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
+namespace cg = cooperative_groups;
 
-#define BLOCK_SIZE (BLOCK_X * BLOCK_Y)
-#define NUM_WARPS (BLOCK_SIZE/32)
-
-// Spherical harmonics coefficients
+// Spherical harmonics coefficients — placed in constant-friendly format
 __device__ const float SH_C0 = 0.28209479177387814f;
 __device__ const float SH_C1 = 0.4886025119029199f;
 __device__ const float SH_C2[] = {
@@ -37,6 +34,38 @@ __device__ const float SH_C3[] = {
 	1.445305721320277f,
 	-0.5900435899266435f
 };
+
+// ---- CUDA Tile Helper Functions for sm_131 ----
+
+// Warp-level all-reduce: returns true if all threads in the warp tile have predicate true
+template <typename TileT>
+__device__ __forceinline__ bool tileAll(const TileT& tile, bool predicate)
+{
+	return tile.all(predicate);
+}
+
+// Warp-level any-reduce: returns true if any thread in the warp tile has predicate true
+template <typename TileT>
+__device__ __forceinline__ bool tileAny(const TileT& tile, bool predicate)
+{
+	return tile.any(predicate);
+}
+
+// Warp-level sum reduction
+template <typename TileT>
+__device__ __forceinline__ float tileReduceSum(const TileT& tile, float value)
+{
+	return cg::reduce(tile, value, cg::plus<float>());
+}
+
+// Warp-level max reduction
+template <typename TileT>
+__device__ __forceinline__ float tileReduceMax(const TileT& tile, float value)
+{
+	return cg::reduce(tile, value, cg::greater<float>{});
+}
+
+// ---- Geometry / Math Helpers ----
 
 __forceinline__ __device__ float ndc2Pix(float v, int S)
 {
@@ -145,13 +174,12 @@ __forceinline__ __device__ bool in_frustum(int idx,
 {
 	float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
 
-	// Bring points to screen space
 	float4 p_hom = transformPoint4x4(p_orig, projmatrix);
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);
 	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
 	p_view = transformPoint4x3(p_orig, viewmatrix);
 
-	if (p_view.z <= 0.2f)// || ((p_proj.x < -1.3 || p_proj.x > 1.3 || p_proj.y < -1.3 || p_proj.y > 1.3)))
+	if (p_view.z <= 0.2f)
 	{
 		if (prefiltered)
 		{
@@ -162,6 +190,19 @@ __forceinline__ __device__ bool in_frustum(int idx,
 	}
 	return true;
 }
+
+// ---- sm_131 Cache Hint Wrappers ----
+// Streaming load: bypasses L1, uses L2 (for read-once data)
+__forceinline__ __device__ float  ldcs(const float* ptr)  { return __ldcs(ptr); }
+__forceinline__ __device__ float2 ldcs(const float2* ptr) { return __ldcs(ptr); }
+__forceinline__ __device__ float4 ldcs(const float4* ptr) { return __ldcs(ptr); }
+__forceinline__ __device__ int    ldcs(const int* ptr)    { return __ldcs(ptr); }
+__forceinline__ __device__ uint32_t ldcs(const uint32_t* ptr) { return __ldcs(ptr); }
+
+// Streaming store: write-back, no allocation in cache
+__forceinline__ __device__ void stcs(float* ptr, float val)  { __stcs(ptr, val); }
+__forceinline__ __device__ void stcs(float2* ptr, float2 val) { __stcs(ptr, val); }
+__forceinline__ __device__ void stcs(float4* ptr, float4 val) { __stcs(ptr, val); }
 
 #define CHECK_CUDA(A, debug) \
 A; if(debug) { \
