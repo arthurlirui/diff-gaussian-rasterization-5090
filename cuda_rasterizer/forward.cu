@@ -3,12 +3,12 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.2 / sm_132
- * - Updated kernel launch bounds for sm_132 occupancy
+ * Refactored for CUDA 13.2 / sm_120
+ * - Updated kernel launch bounds for sm_120 occupancy
  * - Uses cooperative_groups::tiled_partition for warp-level cooperative processing
  * - Uses warp-level vote functions for early termination
  * - Uses __ldcs streaming loads for read-once Gaussian data
- * - [CUDA 13.2] Replaced __syncthreads_count() with block.syncthreads_count()
+ * - Replaced __syncthreads_count() with block.syncthreads_count()
  *   for consistency with cooperative_groups API (deprecated standalone intrinsic)
  */
 
@@ -138,16 +138,15 @@ __device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 r
 }
 
 // ================================================================
-//  Preprocess Kernel — CUDA 13.2 / sm_132
+//  Preprocess Kernel — CUDA 13.2 / sm_120
 //  Each Gaussian is processed by one thread; warp tiles are used
 //  for cooperative early-exit and efficient memory access.
-//  [CUDA 13.2 changes]:
-//  - Updated __launch_bounds__ for sm_132 occupancy (MIN_CTAS_SM132=6)
+//  - Updated __launch_bounds__ for sm_120 occupancy (MIN_CTAS_SM120=6)
 //  - Uses cooperative_groups thread_block API consistently
 // ================================================================
 
 template<int C>
-__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM120)
 preprocessCUDA(int P, int D, int M,
 	const float* orig_points,
 	const glm::vec3* scales,
@@ -174,7 +173,7 @@ preprocessCUDA(int P, int D, int M,
 	uint32_t* tiles_touched,
 	bool prefiltered)
 {
-	// [CUDA 13.2] Use cooperative_groups for thread mapping
+	// Use cooperative_groups for thread mapping
 	auto block = cg::this_thread_block();
 	auto warp_tile = cg::tiled_partition<WARP_SIZE>(block);
 
@@ -248,21 +247,20 @@ preprocessCUDA(int P, int D, int M,
 }
 
 // ================================================================
-//  Render Kernel — CUDA 13.2 / sm_132
+//  Render Kernel — CUDA 13.2 / sm_120
 //  Uses tiled_partition<WARP_SIZE> for warp-level cooperative
 //  processing. Warp tiles enable:
 //  - Warp-level vote for early termination (tile.all)
 //  - Cooperative batch loading via thread_block sync
 //  - Streaming loads (__ldcs) for read-once Gaussian data
-//  [CUDA 13.2 changes]:
 //  - Replaced __syncthreads_count() with block.syncthreads_count()
-//    (standalone __syncthreads_count deprecated in CUDA 13.2 in favor
+//    (standalone __syncthreads_count deprecated in favor
 //    of cooperative_groups API for consistency)
-//  - Updated __launch_bounds__ for sm_132 occupancy
+//  - Updated __launch_bounds__ for sm_120 occupancy
 // ================================================================
 
 template <uint32_t CHANNELS>
-__global__ void __launch_bounds__(BLOCK_SIZE, MIN_CTAS_SM132)
+__global__ void __launch_bounds__(BLOCK_SIZE, MIN_CTAS_SM120)
 renderCUDA(
 	const uint2* __restrict__ ranges,
 	const uint32_t* __restrict__ point_list,
@@ -277,7 +275,7 @@ renderCUDA(
 	float* __restrict__ out_color,
 	float* __restrict__ out_depth)
 {
-	// [CUDA 13.2] Partition block into warp-level tiles using cooperative_groups
+	// Partition block into warp-level tiles using cooperative_groups
 	auto block = cg::this_thread_block();
 	auto warp_tile = cg::tiled_partition<WARP_SIZE>(block);
 	const int warp_id = warp_tile.meta_group_rank();
@@ -316,11 +314,8 @@ renderCUDA(
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
 	{
-		// [CUDA 13.2 change] Use block.syncthreads_count() instead of
-		// standalone __syncthreads_count(). The standalone intrinsic is
-		// deprecated in CUDA 13.2; the cooperative_groups version is the
-		// recommended standard interface and provides identical functionality.
-		int num_done = block.syncthreads_count(done);
+		// __syncthreads_count: barrier + count threads where predicate is true
+		int num_done = __syncthreads_count(done);
 		if (num_done == BLOCK_SIZE)
 			break;
 

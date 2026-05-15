@@ -3,11 +3,11 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.2 / sm_132
- * - Updated kernel launch configurations for sm_132
+ * Refactored for CUDA 13.2 / sm_120
+ * - Updated kernel launch configurations for sm_120
  * - Streaming loads (__ldcs) for read-once data
- * - [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy (MIN_CTAS_SM132=6)
- * - [CUDA 13.2] Consistent cooperative_groups API usage
+ * - Updated __launch_bounds__ for sm_120 occupancy (MIN_CTAS_SM120=6)
+ * - Consistent cooperative_groups API usage
  */
 
 #include "rasterizer_impl.h"
@@ -50,11 +50,11 @@ uint32_t getHigherMsb(uint32_t n)
 }
 
 // ================================================================
-//  Frustum Check Kernel — CUDA 13.2 / sm_132
-//  [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy
+//  Frustum Check Kernel — CUDA 13.2 / sm_120
+//  Updated __launch_bounds__ for sm_120 occupancy
 // ================================================================
 
-__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM120)
 checkFrustum(int P,
 	const float* orig_points,
 	const float* viewmatrix,
@@ -72,12 +72,12 @@ checkFrustum(int P,
 }
 
 // ================================================================
-//  Duplicate with Keys Kernel — CUDA 13.2 / sm_132
+//  Duplicate with Keys Kernel — CUDA 13.2 / sm_120
 //  Generates one key/value pair for all Gaussian / tile overlaps.
-//  [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy
+//  Updated __launch_bounds__ for sm_120 occupancy
 // ================================================================
 
-__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM120)
 duplicateWithKeys(
 	int P,
 	const float2* points_xy,
@@ -117,11 +117,11 @@ duplicateWithKeys(
 }
 
 // ================================================================
-//  Identify Tile Ranges Kernel — CUDA 13.2 / sm_132
-//  [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy
+//  Identify Tile Ranges Kernel — CUDA 13.2 / sm_120
+//  Updated __launch_bounds__ for sm_120 occupancy
 // ================================================================
 
-__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM120)
 identifyTileRanges(int L, uint64_t* point_list_keys, uint2* ranges)
 {
 	auto block = cg::this_thread_block();
@@ -207,10 +207,9 @@ CudaRasterizer::BinningState CudaRasterizer::BinningState::fromChunk(char*& chun
 }
 
 // ================================================================
-//  Forward Rendering — CUDA 13.2 / sm_132
-//  [CUDA 13.2 changes]:
+//  Forward Rendering — CUDA 13.2 / sm_120
 //  - Uses updated CHECK_CUDA macro with cudaGetLastError() check
-//  - All kernel __launch_bounds__ updated for sm_132
+//  - All kernel __launch_bounds__ updated for sm_120
 // ================================================================
 
 int CudaRasterizer::Rasterizer::forward(
@@ -354,8 +353,8 @@ int CudaRasterizer::Rasterizer::forward(
 }
 
 // ================================================================
-//  Backward Rendering — CUDA 13.2 / sm_132
-//  [CUDA 13.2] Uses updated CHECK_CUDA macro with launch error check
+//  Backward Rendering — CUDA 13.2 / sm_120
+//  Uses updated CHECK_CUDA macro with launch error check
 // ================================================================
 
 void CudaRasterizer::Rasterizer::backward(

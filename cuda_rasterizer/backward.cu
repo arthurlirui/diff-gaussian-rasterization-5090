@@ -3,12 +3,12 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.2 / sm_132
+ * Refactored for CUDA 13.2 / sm_120
  * - Uses cooperative_groups::tiled_partition for warp-level cooperative processing
  * - Warp-level gradient aggregation before atomicAdd to reduce contention
  * - Uses __ldcs streaming loads for read-once Gaussian data
- * - [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy (MIN_CTAS_SM132=6)
- * - [CUDA 13.2] Consistent cooperative_groups API usage
+ * - Updated __launch_bounds__ for sm_120 occupancy (MIN_CTAS_SM120=6)
+ * - Consistent cooperative_groups API usage
  */
 
 #include "backward.h"
@@ -186,12 +186,12 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
 }
 
 // ================================================================
-//  2D Conic Gradient Kernel — CUDA 13.2 / sm_132
+//  2D Conic Gradient Kernel — CUDA 13.2 / sm_120
 //  Uses cooperative_groups and streaming loads
-//  [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy
+//  Updated __launch_bounds__ for sm_120 occupancy
 // ================================================================
 
-__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM120)
 computeCov2DCUDA(int P,
 	const float3* means,
 	const int* radii,
@@ -302,12 +302,12 @@ computeCov2DCUDA(int P,
 }
 
 // ================================================================
-//  Preprocess Backward Kernel — CUDA 13.2 / sm_132
-//  [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy
+//  Preprocess Backward Kernel — CUDA 13.2 / sm_120
+//  Updated __launch_bounds__ for sm_120 occupancy
 // ================================================================
 
 template<int C>
-__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM120)
 preprocessCUDA(
 	int P, int D, int M,
 	const float3* means,
@@ -355,20 +355,19 @@ preprocessCUDA(
 }
 
 // ================================================================
-//  Render Backward Kernel — CUDA 13.2 / sm_132
+//  Render Backward Kernel — CUDA 13.2 / sm_120
 //  Key optimization: warp-level gradient aggregation before
 //  atomicAdd. Uses tiled_partition<WARP_SIZE> for:
 //  - Warp-shuffle based gradient reduction
 //  - Warp-level early termination
 //  - Streaming loads for read-once data
-//  [CUDA 13.2 changes]:
-//  - Updated __launch_bounds__ for sm_132 occupancy
-//  - Warp-level aggregation reduces atomicAdd contention on sm_132's
+//  - Updated __launch_bounds__ for sm_120 occupancy
+//  - Warp-level aggregation reduces atomicAdd contention on sm_120's
 //    enhanced memory subsystem (wider atomics throughput)
 // ================================================================
 
 template <uint32_t C>
-__global__ void __launch_bounds__(BLOCK_SIZE, MIN_CTAS_SM132)
+__global__ void __launch_bounds__(BLOCK_SIZE, MIN_CTAS_SM120)
 renderCUDA(
 	const uint2* __restrict__ ranges,
 	const uint32_t* __restrict__ point_list,
@@ -385,7 +384,7 @@ renderCUDA(
 	float* __restrict__ dL_dopacity,
 	float* __restrict__ dL_dcolors)
 {
-	// [CUDA 13.2] Partition block into warp-level tiles using cooperative_groups
+	// Partition block into warp-level tiles using cooperative_groups
 	auto block = cg::this_thread_block();
 	auto warp_tile = cg::tiled_partition<WARP_SIZE>(block);
 	const int warp_id = warp_tile.meta_group_rank();
@@ -492,9 +491,9 @@ renderCUDA(
 			const float dG_ddely = -gdy * con_o.z - gdx * con_o.y;
 
 			// ---- Warp-level gradient aggregation via CUDA Tile ----
-			// [CUDA 13.2] Use warp-shuffle to aggregate gradients for the same Gaussian
-			// before atomicAdd, reducing contention on sm_132.
-			// sm_132 has wider atomic throughput, but reducing the total number of
+			// Use warp-shuffle to aggregate gradients for the same Gaussian
+			// before atomicAdd, reducing contention on sm_120.
+			// sm_120 has wider atomic throughput, but reducing the total number of
 			// atomic operations still improves performance significantly.
 
 			// Aggregated 2D mean position gradients
@@ -511,7 +510,7 @@ renderCUDA(
 
 			// Warp-aggregated atomics: attempt to combine gradients for
 			// the same global_id within the warp before issuing atomicAdd.
-			// This reduces the number of atomic operations on sm_132.
+			// This reduces the number of atomic operations on sm_120.
 			#pragma unroll
 			for (int offset = WARP_SIZE / 2; offset > 0; offset /= 2)
 			{

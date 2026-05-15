@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# Refactored for CUDA 13.2 / sm_132
+# Refactored for CUDA 13.2 / sm_120
 # - Added comprehensive type annotations
 # - Added depth rendering support in Python API
 # - Improved error messages
@@ -33,7 +33,7 @@ def rasterize_gaussians(
     raster_settings: "GaussianRasterizationSettings",
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Invoke the CUDA 13.2 / sm_132 accelerated Gaussian rasterization.
+    Invoke the CUDA 13.2 / sm_120 accelerated Gaussian rasterization.
 
     Args:
         means3D: 3D means of Gaussians, shape (N, 3)
@@ -103,7 +103,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             raster_settings.debug
         )
 
-        # Invoke C++/CUDA rasterizer (CUDA 13.2 / sm_132 backend)
+        # Invoke C++/CUDA rasterizer (CUDA 13.2 / sm_120 backend)
         if raster_settings.debug:
             cpu_args = cpu_deep_copy_tuple(args)  # Copy them before they can be corrupted
             try:
@@ -183,7 +183,7 @@ class GaussianRasterizationSettings(NamedTuple):
     """
     Configuration settings for Gaussian rasterization.
 
-    All tensors must be on CUDA device for the CUDA 13.2 / sm_132 backend.
+    All tensors must be on CUDA device for the CUDA 13.2 / sm_120 backend.
 
     Attributes:
         image_height: Output image height in pixels
@@ -215,11 +215,11 @@ class GaussianRasterizationSettings(NamedTuple):
 
 class GaussianRasterizer(nn.Module):
     """
-    Differentiable Gaussian rasterizer backed by CUDA 13.2 / sm_132 kernels.
+    Differentiable Gaussian rasterizer backed by CUDA 13.2 / sm_120 kernels.
 
     This module performs alpha-blended rendering of 3D Gaussians to a 2D image
     with full support for backpropagation. The CUDA kernels are optimized for
-    sm_132 architecture with:
+    sm_120 architecture with:
     - Cooperative groups warp-level processing
     - Streaming loads for read-once data
     - Warp-level gradient aggregation to reduce atomicAdd contention
@@ -328,7 +328,7 @@ class GaussianRasterizer(nn.Module):
         if cov3D_precomp is None:
             cov3D_precomp = torch.Tensor([])
 
-        # Invoke C++/CUDA rasterization routine (CUDA 13.2 / sm_132 backend)
+        # Invoke C++/CUDA rasterizer (CUDA 13.2 / sm_120 backend)
         return rasterize_gaussians(
             means3D,
             means2D,

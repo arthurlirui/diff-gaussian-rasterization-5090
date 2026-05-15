@@ -3,10 +3,9 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.2 / sm_132
- * - Updated from CUDA 13.1 to CUDA 13.2
+ * Refactored for CUDA 13.2 / sm_120
  * - Uses cooperative_groups standard APIs (no deprecated intrinsics)
- * - Streaming load/store helpers updated for sm_132 cache hierarchy
+ * - Streaming load/store helpers for sm_120 cache hierarchy
  * - Added cuda::memcpy_async support declarations for cooperative loading
  */
 
@@ -19,8 +18,8 @@
 #include <cooperative_groups/reduce.h>
 namespace cg = cooperative_groups;
 
-// [CUDA 13.2] Include memcpy_async support for cooperative shared memory loading
-#if __CUDA_ARCH__ >= 1320
+// Include memcpy_async support for cooperative shared memory loading on sm_120+
+#if __CUDA_ARCH__ >= 1200
 #include <cuda/pipeline>
 #include <cuda/barrier>
 #endif
@@ -45,7 +44,7 @@ __device__ const float SH_C3[] = {
 	-0.5900435899266435f
 };
 
-// ---- CUDA Tile Helper Functions for sm_132 ----
+// ---- CUDA Tile Helper Functions for sm_120 ----
 
 // Warp-level all-reduce: returns true if all threads in the warp tile have predicate true
 template <typename TileT>
@@ -201,22 +200,22 @@ __forceinline__ __device__ bool in_frustum(int idx,
 	return true;
 }
 
-// ---- sm_132 Cache Hint Wrappers ----
-// [CUDA 13.2 change] Streaming load: bypasses L1, uses L2 (for read-once data)
-// __ldcs remains the recommended intrinsic for streaming loads in CUDA 13.2,
-// but sm_132's enhanced L2 cache (larger, lower latency) makes this even more effective.
+// ---- sm_120 Cache Hint Wrappers ----
+// Streaming load: bypasses L1, uses L2 (for read-once data)
+// __ldcs is the recommended intrinsic for streaming loads in CUDA 13.2,
+// sm_120's enhanced L2 cache (larger, lower latency) makes this even more effective.
 __forceinline__ __device__ float  ldcs(const float* ptr)  { return __ldcs(ptr); }
 __forceinline__ __device__ float2 ldcs(const float2* ptr) { return __ldcs(ptr); }
 __forceinline__ __device__ float4 ldcs(const float4* ptr) { return __ldcs(ptr); }
 __forceinline__ __device__ int    ldcs(const int* ptr)    { return __ldcs(ptr); }
 __forceinline__ __device__ uint32_t ldcs(const uint32_t* ptr) { return __ldcs(ptr); }
 
-// [CUDA 13.2 change] Streaming store: write-back, no allocation in cache
+// Streaming store: write-back, no allocation in cache
 __forceinline__ __device__ void stcs(float* ptr, float val)  { __stcs(ptr, val); }
 __forceinline__ __device__ void stcs(float2* ptr, float2 val) { __stcs(ptr, val); }
 __forceinline__ __device__ void stcs(float4* ptr, float4 val) { __stcs(ptr, val); }
 
-// [CUDA 13.2 change] Enhanced error checking macro
+// Enhanced error checking macro
 // After each kernel launch, now also checks cudaGetLastError() immediately
 // (not just after cudaDeviceSynchronize). This catches launch-time errors
 // such as invalid configuration arguments before they manifest as silent failures.

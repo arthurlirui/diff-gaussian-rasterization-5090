@@ -3,8 +3,8 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# Refactored for CUDA 13.2 / sm_132
-# - Updated architecture from sm_131 to sm_132
+# Refactored for CUDA 13.2 / sm_120
+# - Targeting sm_120 architecture (RTX 5090 / Blackwell)
 # - C++20 standard for CUDA 13.2 compatibility
 #
 
@@ -29,8 +29,8 @@ add_library(CudaRasterizer
 	cuda_rasterizer/rasterizer.h
 )
 
-# [CUDA 13.2 change] Target sm_132 for CUDA 13.2 architecture
-set_target_properties(CudaRasterizer PROPERTIES CUDA_ARCHITECTURES "132")
+# Target sm_120 (RTX 5090 / Blackwell)
+set_target_properties(CudaRasterizer PROPERTIES CUDA_ARCHITECTURES "120")
 
 target_include_directories(CudaRasterizer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cuda_rasterizer)
 target_include_directories(CudaRasterizer PRIVATE third_party/glm ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})

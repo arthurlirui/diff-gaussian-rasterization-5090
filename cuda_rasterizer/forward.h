@@ -3,7 +3,7 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.2 / sm_132
+ * Refactored for CUDA 13.2 / sm_120
  */
 
 #ifndef CUDA_RASTERIZER_FORWARD_H_INCLUDED

@@ -3,8 +3,8 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# Refactored for CUDA 13.2 / sm_132
-# - Updated gencode flags from sm_131 to sm_132
+# Refactored for CUDA 13.2 / sm_120
+# - Updated gencode flags to sm_120 (RTX 5090 / Blackwell)
 # - Added -std=c++20 for CUDA 13.2 compatibility
 #
 
@@ -28,16 +28,18 @@ setup(
             extra_compile_args={
                 "nvcc": [
                     "-I" + os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party/glm/"),
-                    # [CUDA 13.2 change] Target sm_132 architecture (next-gen after sm_131)
-                    "-gencode", "arch=compute_132,code=sm_132",
-                    "-gencode", "arch=compute_132,code=compute_132",
+                    # Target sm_120 architecture (RTX 5090 / Blackwell)
+                    "-gencode", "arch=compute_120,code=sm_120",
+                    "-gencode", "arch=compute_120,code=compute_120",
                     "--expt-relaxed-constexpr",
                     "--expt-extended-lambda",
-                    # [CUDA 13.2 change] C++20 standard for modern CUDA features
+                    # C++20 standard for modern CUDA features
                     "-std=c++20",
                     "-use_fast_math",
+                    # CUDA 13.2 CCCL requires MSVC standard-conforming preprocessor
+                    "-Xcompiler", "/Zc:preprocessor",
                 ],
-                "cxx": ["-std=c++20"],
+                "cxx": ["/std:c++20", "/Zc:preprocessor"],
             })
         ],
     cmdclass={

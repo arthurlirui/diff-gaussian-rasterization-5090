@@ -3,8 +3,8 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.2 / sm_132
- * - [CUDA 13.2] Updated for sm_132 architecture targeting
+ * Refactored for CUDA 13.2 / sm_120
+ * - Updated for sm_120 architecture targeting (RTX 5090 / Blackwell)
  * - Uses modern PyTorch C++ extension API
  */
 
