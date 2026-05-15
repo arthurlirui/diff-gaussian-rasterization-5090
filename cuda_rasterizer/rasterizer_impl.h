@@ -3,7 +3,7 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.1 / sm_131 with CUDA Tile support
+ * Refactored for CUDA 13.2 / sm_132
  */
 
 #pragma once

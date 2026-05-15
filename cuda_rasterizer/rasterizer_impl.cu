@@ -3,11 +3,11 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.1 / sm_131 with CUDA Tile support
- * - Uses cooperative_groups::tiled_partition throughout
- * - Updated kernel launch configurations for sm_131
+ * Refactored for CUDA 13.2 / sm_132
+ * - Updated kernel launch configurations for sm_132
  * - Streaming loads (__ldcs) for read-once data
- * - Optimized __launch_bounds__ for sm_131 occupancy
+ * - [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy (MIN_CTAS_SM132=6)
+ * - [CUDA 13.2] Consistent cooperative_groups API usage
  */
 
 #include "rasterizer_impl.h"
@@ -50,10 +50,11 @@ uint32_t getHigherMsb(uint32_t n)
 }
 
 // ================================================================
-//  Frustum Check Kernel — CUDA Tile version
+//  Frustum Check Kernel — CUDA 13.2 / sm_132
+//  [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy
 // ================================================================
 
-__global__ void __launch_bounds__(256, MIN_CTAS_SM131)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
 checkFrustum(int P,
 	const float* orig_points,
 	const float* viewmatrix,
@@ -71,11 +72,12 @@ checkFrustum(int P,
 }
 
 // ================================================================
-//  Duplicate with Keys Kernel — CUDA Tile version
+//  Duplicate with Keys Kernel — CUDA 13.2 / sm_132
 //  Generates one key/value pair for all Gaussian / tile overlaps.
+//  [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy
 // ================================================================
 
-__global__ void __launch_bounds__(256, MIN_CTAS_SM131)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
 duplicateWithKeys(
 	int P,
 	const float2* points_xy,
@@ -115,10 +117,11 @@ duplicateWithKeys(
 }
 
 // ================================================================
-//  Identify Tile Ranges Kernel — CUDA Tile version
+//  Identify Tile Ranges Kernel — CUDA 13.2 / sm_132
+//  [CUDA 13.2] Updated __launch_bounds__ for sm_132 occupancy
 // ================================================================
 
-__global__ void __launch_bounds__(256, MIN_CTAS_SM131)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
 identifyTileRanges(int L, uint64_t* point_list_keys, uint2* ranges)
 {
 	auto block = cg::this_thread_block();
@@ -204,7 +207,10 @@ CudaRasterizer::BinningState CudaRasterizer::BinningState::fromChunk(char*& chun
 }
 
 // ================================================================
-//  Forward Rendering — CUDA 13.1 / sm_131
+//  Forward Rendering — CUDA 13.2 / sm_132
+//  [CUDA 13.2 changes]:
+//  - Uses updated CHECK_CUDA macro with cudaGetLastError() check
+//  - All kernel __launch_bounds__ updated for sm_132
 // ================================================================
 
 int CudaRasterizer::Rasterizer::forward(
@@ -228,6 +234,7 @@ int CudaRasterizer::Rasterizer::forward(
 	const float tan_fovx, float tan_fovy,
 	const bool prefiltered,
 	float* out_color,
+	float* out_depth,
 	int* radii,
 	bool debug)
 {
@@ -288,7 +295,7 @@ int CudaRasterizer::Rasterizer::forward(
 
 	// Retrieve total number of Gaussian instances
 	int num_rendered;
-	CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug);
+	CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug)
 
 	size_t binning_chunk_size = required<BinningState>(num_rendered);
 	char* binning_chunkptr = binningBuffer(binning_chunk_size);
@@ -336,16 +343,19 @@ int CudaRasterizer::Rasterizer::forward(
 		geomState.means2D,
 		feature_ptr,
 		geomState.conic_opacity,
+		geomState.depths,
 		imgState.accum_alpha,
 		imgState.n_contrib,
 		background,
-		out_color), debug)
+		out_color,
+		out_depth), debug)
 
 	return num_rendered;
 }
 
 // ================================================================
-//  Backward Rendering — CUDA 13.1 / sm_131
+//  Backward Rendering — CUDA 13.2 / sm_132
+//  [CUDA 13.2] Uses updated CHECK_CUDA macro with launch error check
 // ================================================================
 
 void CudaRasterizer::Rasterizer::backward(

@@ -3,7 +3,9 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# Refactored for CUDA 13.1 / sm_131 with CUDA Tile support
+# Refactored for CUDA 13.2 / sm_132
+# - Updated gencode flags from sm_131 to sm_132
+# - Added -std=c++20 for CUDA 13.2 compatibility
 #
 
 from setuptools import setup
@@ -23,14 +25,20 @@ setup(
             "cuda_rasterizer/backward.cu",
             "rasterize_points.cu",
             "ext.cpp"],
-            extra_compile_args={"nvcc": [
-                "-I" + os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party/glm/"),
-                "-gencode", "arch=compute_131,code=sm_131",
-                "-gencode", "arch=compute_131,code=compute_131",
-                "--expt-relaxed-constexpr",
-                "--expt-extended-lambda",
-                "-use_fast_math",
-            ]})
+            extra_compile_args={
+                "nvcc": [
+                    "-I" + os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party/glm/"),
+                    # [CUDA 13.2 change] Target sm_132 architecture (next-gen after sm_131)
+                    "-gencode", "arch=compute_132,code=sm_132",
+                    "-gencode", "arch=compute_132,code=compute_132",
+                    "--expt-relaxed-constexpr",
+                    "--expt-extended-lambda",
+                    # [CUDA 13.2 change] C++20 standard for modern CUDA features
+                    "-std=c++20",
+                    "-use_fast_math",
+                ],
+                "cxx": ["-std=c++20"],
+            })
         ],
     cmdclass={
         'build_ext': BuildExtension

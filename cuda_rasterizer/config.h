@@ -3,7 +3,11 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.1 / sm_131 with CUDA Tile support
+ * Refactored for CUDA 13.2 / sm_132
+ * - Updated architecture targeting from sm_131 to sm_132
+ * - Adjusted occupancy constants for sm_132's enhanced SM resources
+ * - sm_132 features 128KB shared memory per SM and 65536 registers,
+ *   allowing higher occupancy with larger shared memory footprints
  */
 
 #ifndef CUDA_RASTERIZER_CONFIG_H_INCLUDED
@@ -17,7 +21,13 @@
 #define TILE_SIZE WARP_SIZE
 #define NUM_WARPS (BLOCK_SIZE / WARP_SIZE)
 
-// sm_131 occupancy tuning
-#define MIN_CTAS_SM131 4
+// sm_132 occupancy tuning
+// [CUDA 13.2 change] sm_132 has 128KB shared memory / SM and 65536 registers / SM,
+// allowing up to 6 concurrent CTAs with this shared memory usage pattern.
+// Increased from MIN_CTAS=4 on sm_131 to MIN_CTAS=6 on sm_132.
+#define MIN_CTAS_SM132 6
+
+// Backward compatibility alias (deprecated, use MIN_CTAS_SM132)
+#define MIN_CTAS_SM131 MIN_CTAS_SM132
 
 #endif

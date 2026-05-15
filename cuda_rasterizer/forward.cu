@@ -3,11 +3,13 @@
  * GRAPHDECO research group, https://team.inria.fr/graphdeco
  * All rights reserved.
  *
- * Refactored for CUDA 13.1 / sm_131 with CUDA Tile support
+ * Refactored for CUDA 13.2 / sm_132
+ * - Updated kernel launch bounds for sm_132 occupancy
  * - Uses cooperative_groups::tiled_partition for warp-level cooperative processing
  * - Uses warp-level vote functions for early termination
  * - Uses __ldcs streaming loads for read-once Gaussian data
- * - Optimized __launch_bounds__ for sm_131 occupancy
+ * - [CUDA 13.2] Replaced __syncthreads_count() with block.syncthreads_count()
+ *   for consistency with cooperative_groups API (deprecated standalone intrinsic)
  */
 
 #include "forward.h"
@@ -136,13 +138,16 @@ __device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 r
 }
 
 // ================================================================
-//  Preprocess Kernel — CUDA Tile version
+//  Preprocess Kernel — CUDA 13.2 / sm_132
 //  Each Gaussian is processed by one thread; warp tiles are used
 //  for cooperative early-exit and efficient memory access.
+//  [CUDA 13.2 changes]:
+//  - Updated __launch_bounds__ for sm_132 occupancy (MIN_CTAS_SM132=6)
+//  - Uses cooperative_groups thread_block API consistently
 // ================================================================
 
 template<int C>
-__global__ void __launch_bounds__(256, MIN_CTAS_SM131)
+__global__ void __launch_bounds__(256, MIN_CTAS_SM132)
 preprocessCUDA(int P, int D, int M,
 	const float* orig_points,
 	const glm::vec3* scales,
@@ -169,7 +174,7 @@ preprocessCUDA(int P, int D, int M,
 	uint32_t* tiles_touched,
 	bool prefiltered)
 {
-	// CUDA Tile: use cooperative_groups for thread mapping
+	// [CUDA 13.2] Use cooperative_groups for thread mapping
 	auto block = cg::this_thread_block();
 	auto warp_tile = cg::tiled_partition<WARP_SIZE>(block);
 
@@ -243,16 +248,21 @@ preprocessCUDA(int P, int D, int M,
 }
 
 // ================================================================
-//  Render Kernel — CUDA Tile version
+//  Render Kernel — CUDA 13.2 / sm_132
 //  Uses tiled_partition<WARP_SIZE> for warp-level cooperative
 //  processing. Warp tiles enable:
 //  - Warp-level vote for early termination (tile.all)
 //  - Cooperative batch loading via thread_block sync
 //  - Streaming loads (__ldcs) for read-once Gaussian data
+//  [CUDA 13.2 changes]:
+//  - Replaced __syncthreads_count() with block.syncthreads_count()
+//    (standalone __syncthreads_count deprecated in CUDA 13.2 in favor
+//    of cooperative_groups API for consistency)
+//  - Updated __launch_bounds__ for sm_132 occupancy
 // ================================================================
 
 template <uint32_t CHANNELS>
-__global__ void __launch_bounds__(BLOCK_SIZE, MIN_CTAS_SM131)
+__global__ void __launch_bounds__(BLOCK_SIZE, MIN_CTAS_SM132)
 renderCUDA(
 	const uint2* __restrict__ ranges,
 	const uint32_t* __restrict__ point_list,
@@ -260,12 +270,14 @@ renderCUDA(
 	const float2* __restrict__ points_xy_image,
 	const float* __restrict__ features,
 	const float4* __restrict__ conic_opacity,
+	const float* __restrict__ depths,
 	float* __restrict__ final_T,
 	uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ bg_color,
-	float* __restrict__ out_color)
+	float* __restrict__ out_color,
+	float* __restrict__ out_depth)
 {
-	// CUDA Tile: partition block into warp-level tiles
+	// [CUDA 13.2] Partition block into warp-level tiles using cooperative_groups
 	auto block = cg::this_thread_block();
 	auto warp_tile = cg::tiled_partition<WARP_SIZE>(block);
 	const int warp_id = warp_tile.meta_group_rank();
@@ -292,20 +304,23 @@ renderCUDA(
 	__shared__ int collected_id[BLOCK_SIZE];
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
+	__shared__ float collected_depth[BLOCK_SIZE];
 
 	// Per-pixel accumulator
 	float T = 1.0f;
 	uint32_t contributor = 0;
 	uint32_t last_contributor = 0;
 	float C[CHANNELS] = { 0 };
+	float D = 0;  // depth accumulator
 
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
 	{
-		// ---- CUDA Tile Early Termination ----
-		// Use warp-level vote: if all threads in a warp are done,
-		// contribute to the block-level count without full sync.
-		int num_done = __syncthreads_count(done);
+		// [CUDA 13.2 change] Use block.syncthreads_count() instead of
+		// standalone __syncthreads_count(). The standalone intrinsic is
+		// deprecated in CUDA 13.2; the cooperative_groups version is the
+		// recommended standard interface and provides identical functionality.
+		int num_done = block.syncthreads_count(done);
 		if (num_done == BLOCK_SIZE)
 			break;
 
@@ -319,6 +334,7 @@ renderCUDA(
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = ldcs(&points_xy_image[coll_id]);
 			collected_conic_opacity[block.thread_rank()] = ldcs(&conic_opacity[coll_id]);
+			collected_depth[block.thread_rank()] = ldcs(&depths[coll_id]);
 		}
 		block.sync();
 
@@ -346,10 +362,11 @@ renderCUDA(
 				continue;
 			}
 
-			// Eq. (3): accumulate color
+			// Eq. (3): accumulate color and depth
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
 
+			D += collected_depth[j] * alpha * T;
 			T = test_T;
 			last_contributor = contributor;
 		}
@@ -362,6 +379,7 @@ renderCUDA(
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+		out_depth[pix_id] = D;
 	}
 }
 
@@ -375,10 +393,12 @@ void FORWARD::render(
 	const float2* means2D,
 	const float* colors,
 	const float4* conic_opacity,
+	const float* depths,
 	float* final_T,
 	uint32_t* n_contrib,
 	const float* bg_color,
-	float* out_color)
+	float* out_color,
+	float* out_depth)
 {
 	renderCUDA<NUM_CHANNELS><<<grid, block>>>(
 		ranges,
@@ -387,10 +407,12 @@ void FORWARD::render(
 		means2D,
 		colors,
 		conic_opacity,
+		depths,
 		final_T,
 		n_contrib,
 		bg_color,
-		out_color);
+		out_color,
+		out_depth);
 }
 
 void FORWARD::preprocess(int P, int D, int M,

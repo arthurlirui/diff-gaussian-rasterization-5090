@@ -3,7 +3,9 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# Refactored for CUDA 13.1 / sm_131 with CUDA Tile support
+# Refactored for CUDA 13.2 / sm_132
+# - Updated architecture from sm_131 to sm_132
+# - C++20 standard for CUDA 13.2 compatibility
 #
 
 cmake_minimum_required(VERSION 3.24)
@@ -27,13 +29,13 @@ add_library(CudaRasterizer
 	cuda_rasterizer/rasterizer.h
 )
 
-# Target sm_131 (Blackwell / RTX 5090 class) for CUDA 13.1
-set_target_properties(CudaRasterizer PROPERTIES CUDA_ARCHITECTURES "131")
+# [CUDA 13.2 change] Target sm_132 for CUDA 13.2 architecture
+set_target_properties(CudaRasterizer PROPERTIES CUDA_ARCHITECTURES "132")
 
 target_include_directories(CudaRasterizer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cuda_rasterizer)
 target_include_directories(CudaRasterizer PRIVATE third_party/glm ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
-# Enable extended lambda and relaxed constexpr for CUDA Tile / cooperative_groups
+# Enable extended lambda and relaxed constexpr for cooperative_groups
 target_compile_options(CudaRasterizer PRIVATE
 	$<$<COMPILE_LANGUAGE:CUDA>:
 	--expt-relaxed-constexpr
