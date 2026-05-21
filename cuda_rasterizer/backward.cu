@@ -384,11 +384,8 @@ renderCUDA(
 	float* __restrict__ dL_dopacity,
 	float* __restrict__ dL_dcolors)
 {
-	// Partition block into warp-level tiles using cooperative_groups
+	// Thread block for cooperative_groups sync
 	auto block = cg::this_thread_block();
-	auto warp_tile = cg::tiled_partition<WARP_SIZE>(block);
-	const int warp_id = warp_tile.meta_group_rank();
-	const int lane_id = warp_tile.thread_rank();
 
 	const uint32_t horizontal_blocks = (W + BLOCK_X - 1) / BLOCK_X;
 	const uint2 pix_min = { block.group_index().x * BLOCK_X, block.group_index().y * BLOCK_Y };
@@ -490,63 +487,13 @@ renderCUDA(
 			const float dG_ddelx = -gdx * con_o.x - gdy * con_o.y;
 			const float dG_ddely = -gdy * con_o.z - gdx * con_o.y;
 
-			// ---- Warp-level gradient aggregation via CUDA Tile ----
-			// Use warp-shuffle to aggregate gradients for the same Gaussian
-			// before atomicAdd, reducing contention on sm_120.
-			// sm_120 has wider atomic throughput, but reducing the total number of
-			// atomic operations still improves performance significantly.
-
-			// Aggregated 2D mean position gradients
-			float grad_mean2D_x = dL_dG * dG_ddelx * ddelx_dx;
-			float grad_mean2D_y = dL_dG * dG_ddely * ddely_dy;
-
-			// Aggregated 2D conic gradients
-			float grad_conic_x = -0.5f * gdx * d.x * dL_dG;
-			float grad_conic_y = -0.5f * gdx * d.y * dL_dG;
-			float grad_conic_w = -0.5f * gdy * d.y * dL_dG;
-
-			// Aggregated opacity gradient
-			float grad_opacity = G * dL_dalpha;
-
-			// Warp-aggregated atomics: attempt to combine gradients for
-			// the same global_id within the warp before issuing atomicAdd.
-			// This reduces the number of atomic operations on sm_120.
-			#pragma unroll
-			for (int offset = WARP_SIZE / 2; offset > 0; offset /= 2)
-			{
-				int other_id = warp_tile.shfl_xor(global_id, offset);
-				if (other_id == global_id)
-				{
-					grad_mean2D_x += warp_tile.shfl_xor(grad_mean2D_x, offset);
-					grad_mean2D_y += warp_tile.shfl_xor(grad_mean2D_y, offset);
-					grad_conic_x += warp_tile.shfl_xor(grad_conic_x, offset);
-					grad_conic_y += warp_tile.shfl_xor(grad_conic_y, offset);
-					grad_conic_w += warp_tile.shfl_xor(grad_conic_w, offset);
-					grad_opacity += warp_tile.shfl_xor(grad_opacity, offset);
-				}
-			}
-
-			// Only the first lane for each unique global_id issues the atomicAdd
-			bool is_first = true;
-			#pragma unroll
-			for (int check = 1; check <= lane_id; check++)
-			{
-				if (warp_tile.shfl(global_id, lane_id - check) == global_id)
-				{
-					is_first = false;
-					break;
-				}
-			}
-
-			if (is_first)
-			{
-				atomicAdd(&dL_dmean2D[global_id].x, grad_mean2D_x);
-				atomicAdd(&dL_dmean2D[global_id].y, grad_mean2D_y);
-				atomicAdd(&dL_dconic2D[global_id].x, grad_conic_x);
-				atomicAdd(&dL_dconic2D[global_id].y, grad_conic_y);
-				atomicAdd(&dL_dconic2D[global_id].w, grad_conic_w);
-				atomicAdd(&(dL_dopacity[global_id]), grad_opacity);
-			}
+			// Direct atomicAdd for gradient updates (safe under warp divergence)
+			atomicAdd(&dL_dmean2D[global_id].x, dL_dG * dG_ddelx * ddelx_dx);
+			atomicAdd(&dL_dmean2D[global_id].y, dL_dG * dG_ddely * ddely_dy);
+			atomicAdd(&dL_dconic2D[global_id].x, -0.5f * gdx * d.x * dL_dG);
+			atomicAdd(&dL_dconic2D[global_id].y, -0.5f * gdx * d.y * dL_dG);
+			atomicAdd(&dL_dconic2D[global_id].w, -0.5f * gdy * d.y * dL_dG);
+			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
 		}
 	}
 }
